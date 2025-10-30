@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { FBXLoader } from 'three/examples/jsm/Addons.js';
 
 // 기본 설정
 let camera, scene, renderer, light;
@@ -7,10 +8,13 @@ const h_scr = window.innerWidth;
 const v_scr = window.innerHeight;
 
 // 오브젝트 그룹 
-const basicObject = new THREE.Object3D(); // plane같은 기본 오브젝트
-const depthLv1Object = new THREE.Object3D(); // depthLv1 오브젝트 근접
-const depthLv2Object = new THREE.Object3D(); // depthLv2 오브젝트 중간
-const depthLv3Object = new THREE.Object3D(); // depthLv3 오브젝트 원거리
+const basicObject = new THREE.Group(); // plane같은 기본 오브젝트
+const objectsDepthLv0 = new THREE.Group(); // depth Lv0  근거리
+const objectsDepthLv1 = new THREE.Group(); // depth Lv1  중거리
+const objectsDepthLv2 = new THREE.Group(); // depth Lv2  원거리
+
+// 오브젝트 로드
+const fbxLoader = new FBXLoader();
 
 // 카메라 회전 관련 상수
 const DAMPING_SPEED = 0.1; // 원위치로 회귀 speed
@@ -33,7 +37,7 @@ function init() {
 
     scene = new THREE.Scene();
 
-    light = new THREE.DirectionalLight(0xFFFFFF,4); // 나중에 수정 
+    light = new THREE.DirectionalLight(0xFFFFFF,1); // 나중에 수정 
     light.position.set(0,1,5).normalize(); 
     scene.add(light);
 
@@ -68,21 +72,22 @@ function setObject(){
         cube2.rotation.set(20,70,20);
         scene.add( cube2 );
     }
+  //debbugingObject();
 
-   debbugingObject();
-    createBasicObject();
+    setObjectDepthLv1();      
+    setBasicObject();
     scene.add(basicObject);
-    scene.add(depthLv1Object);
-    scene.add(depthLv2Object);
-    scene.add(depthLv3Object);
+    scene.add(objectsDepthLv0);
+    scene.add(objectsDepthLv1);
+    scene.add(objectsDepthLv2);
 }
 
 //[오브젝트 _ 기본 오브젝트 그룹]
-function createBasicObject(){
+function setBasicObject(){
    
     const plane = new THREE.Mesh( new THREE.PlaneGeometry( 1000 , 1000 ),
                     new THREE.MeshPhongMaterial( {color: 0xf0f0f0} ) );
-    plane.position.set(0,-5,0);
+    plane.position.set(0,-2,0);
     plane.rotation.x = Math.PI * -0.5;
     const texture = new THREE.TextureLoader().load( 'asset/Checker.png' );
     texture.wrapS = THREE.RepeatWrapping;
@@ -91,6 +96,37 @@ function createBasicObject(){
     plane.material.map = texture;
 
     basicObject.add( plane );
+}
+
+function setObjectDepthLv1(){
+    /*Defalut scale = 0.05
+     * 블렌더 : THREE = 1 : 100
+     * 건물 오브젝트의 SACLE 범위 : 4배 ~ 7배
+     */
+    const BUILDING_SPACE = 0.5; // m 건물 간격
+    const MAX_OBJ_SCALE = 0.07;
+    const MIN_OBJ_SCALE = 0.04;
+    const SCALE_FACTOR = 100; // 블렌더 : THREE = 1 : 100
+    let objPos = new THREE.Vector3();
+    let curScale = 0;
+    
+    objPos = new THREE.Vector3(-80, -2, -20);
+    
+    for(let i=0; i<15; i++){
+        fbxLoader.load('asset/Building.fbx', (object) => {
+
+        curScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
+        objPos.x += curScale * 100;
+
+        object.scale.set(curScale, curScale, curScale);
+        
+        object.position.set(objPos.x, objPos.y, objPos.z);
+
+        objectsDepthLv1.add(object); 
+        
+        objPos.x += curScale * SCALE_FACTOR + BUILDING_SPACE;
+    });
+    }
 }
 
 // [애니메이션_루프]
@@ -135,11 +171,15 @@ function OnMouseWheel(e){
             theta -= LIGHT_ROTATE_SPEED;
         }
     
-    theta = THREE.MathUtils.clamp(theta, 0.2, 3); // theta값 제한
-
-    light.position.x = radius * Math.cos(theta);
-    light.position.y = radius * Math.sin(theta);
-    light.position.z = 0; // z축 고정
+    //theta = THREE.MathUtils.clamp(theta, 0.2, 3); // theta값 제한
+    
+    light.position.set(radius * Math.cos(theta)
+        ,1 + radius * Math.sin(theta)
+        ,5)
+    light.target.position.set(0,0,0);
+    // light.position.x = radius * Math.cos(theta);
+    // light.position.y = 1 + radius * Math.sin(theta);
+    // light.position.z = 5; // z축 고정
 
     //console.log("theta :" + theta+ ", light position x :" + light.position.x+", y :" + light.position.y+"\n");
     
