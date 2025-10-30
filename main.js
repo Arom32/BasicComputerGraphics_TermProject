@@ -1,4 +1,3 @@
-// 20240789 이지현
 import * as THREE from 'three';
 
 // 기본 설정
@@ -18,6 +17,7 @@ const DAMPING_SPEED = 0.1; // 원위치로 회귀 speed
 const INVALID_MOVING_AREA = 0.9; // 마우스 움직임 반영하지 않는 내부 비율. 
 const ROTATE_SPEED = 0.005; // 카메라 회전 speed
 const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(5);
+const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
 // light 원운동 관련 변수
 const LIGHT_ROTATE_SPEED = 0.1;
@@ -125,24 +125,24 @@ function OnMouseWheel(e){
  * ligth pos를 theta값 원 운동
  * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
 */ 
-    const radius = 2; // 원 운동 반지름
+    const radius = 5; // 원 운동 반지름
     
-    if(e.deltaY > 0){
-        theta += LIGHT_ROTATE_SPEED;
-    }
-    else{
-        theta -= LIGHT_ROTATE_SPEED;
-    }
+    // 0 ~ 2π
+        if(e.deltaY > 0){
+            theta += LIGHT_ROTATE_SPEED;
+        }
+        else{
+            theta -= LIGHT_ROTATE_SPEED;
+        }
     
+    theta = THREE.MathUtils.clamp(theta, 0.2, 3); // theta값 제한
+
     light.position.x = radius * Math.cos(theta);
     light.position.y = radius * Math.sin(theta);
-    light.position.z = 5; // z축 고정
+    light.position.z = 0; // z축 고정
 
-    //theta값 계산 후, 회전 제한 기능 추가.
+    //console.log("theta :" + theta+ ", light position x :" + light.position.x+", y :" + light.position.y+"\n");
     
-    console.log("theta :" + theta);
-    //console.log(e.deltaY);
-
 }
 
 // [ 애니메이션 _ 카메라 회전 ] 
@@ -151,26 +151,40 @@ function cameraRotate(){
  * 일정 영역(INVALID_MOVING_AREA) 외부, 확실하게 움직이려는 의사가 있을때만 회전 반영
  * 일정 영역(INVALID_MOVING_AREA) 내부, 원위치(0,0,0)을 바라보도록 복귀
 */
-    //상하, x축 회전
-    if(Math.abs(mouse.y) >= INVALID_MOVING_AREA){ // 외부 영역
+    
+    if((Math.abs(mouse.y) >= INVALID_MOVING_AREA) ||( Math.abs(mouse.x) >= INVALID_MOVING_AREA)){ // 외부 영역
+        //상하, x축 회전
         camera.rotation.x += (mouse.y)*ROTATE_SPEED;
-    }
-    else{ // 내부 영역
-        camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, 0, DAMPING_SPEED)
-    }
-
-    //좌우, y축 회전
-    if(Math.abs(mouse.x) >= INVALID_MOVING_AREA){ // 외부 영역
+        camera.rotation.x = THREE.MathUtils.clamp(camera.rotation.x, -MAX_ROTATE_ANGLE, MAX_ROTATE_ANGLE); // 최대 회전 각도 제한
+        
+        //좌우, y축 회전
         camera.rotation.y += -(mouse.x)*ROTATE_SPEED;
+        camera.rotation.y = THREE.MathUtils.clamp(camera.rotation.y, -MAX_ROTATE_ANGLE, MAX_ROTATE_ANGLE);
     }
     else{ // 내부 영역
-        camera.rotation.y = THREE.MathUtils.lerp(camera.rotation.y, 0, DAMPING_SPEED)
-    }
+        // 0에 충분히 가까워졌음에도 계속 lerp 연산이 일어남 
+        // 0에 충분히 근접 시(NEAR_ZERO 미만) 0으로 고정
+        // 더 좋은 방법?
+        
+        if (Math.abs(camera.rotation.x ) < NEAR_ZERO) {
+            camera.rotation.x = 0;
+        }
+        else{
+            console.log("lerp x");
+            camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, 0, DAMPING_SPEED);
+        }
+        if (Math.abs(camera.rotation.y ) < NEAR_ZERO) {
+            camera.rotation.y = 0;
+        }
+        else{
+            console.log("lerp y");
+            camera.rotation.y = THREE.MathUtils.lerp(camera.rotation.y, 0, DAMPING_SPEED);
+        }
 
-    // 최대 회전 각도 제한
-    camera.rotation.x = THREE.MathUtils.clamp(camera.rotation.x, -MAX_ROTATE_ANGLE, MAX_ROTATE_ANGLE);
-    camera.rotation.y = THREE.MathUtils.clamp(camera.rotation.y, -MAX_ROTATE_ANGLE, MAX_ROTATE_ANGLE);
-}
+    }
+   
+    //console.log("camera rotation x :" + camera.rotation.x + ", y :" + camera.rotation.y);
+}  
 
 init();    
 animation();
