@@ -1,8 +1,8 @@
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/Addons.js';
+import {GLTFLoader } from 'three/examples/jsm/Addons.js';
 
 // 기본 설정
-let camera, scene, renderer, light;
+let camera, scene, renderer, sunLight;
 let mouse = new THREE.Vector2();
 const h_scr = window.innerWidth;
 const v_scr = window.innerHeight;
@@ -14,12 +14,12 @@ const objectsDepthLv1 = new THREE.Group(); // depth Lv1  중거리
 const objectsDepthLv2 = new THREE.Group(); // depth Lv2  원거리
 
 // 오브젝트 로드
-const fbxLoader = new FBXLoader();
+const glfLoader = new GLTFLoader();
 
 // 카메라 회전 관련 상수
 const DAMPING_SPEED = 0.1; // 원위치로 회귀 speed
 const INVALID_MOVING_AREA = 0.9; // 마우스 움직임 반영하지 않는 내부 비율. 
-const ROTATE_SPEED = 0.005; // 카메라 회전 speed
+const ROTATE_SPEED = 0.01; // 카메라 회전 speed
 const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(5);
 const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
@@ -31,15 +31,17 @@ let theta = 0;
 function init() {
     console.log('init start');
 
-    camera = new THREE.PerspectiveCamera( 110, h_scr/v_scr, 0.1, 1000 );
+    camera = new THREE.PerspectiveCamera( 60, h_scr/v_scr, 0.1, 1000 );
     camera.position.set(0, 0, 1.5);
     camera.lookAt(0,0,0); 
 
     scene = new THREE.Scene();
 
-    light = new THREE.DirectionalLight(0xFFFFFF,1); // 나중에 수정 
-    light.position.set(0,1,5).normalize(); 
-    scene.add(light);
+    sunLight = new THREE.DirectionalLight(0xFFFFFF,1.0); // 나중에 수정 
+    sunLight.position.set(50,50,30);
+    sunLight.castShadow = true;
+    sunLight.target.position.set(0,0,0);
+    scene.add(sunLight);
 
 
     renderer = new THREE.WebGLRenderer();
@@ -50,29 +52,13 @@ function init() {
 
     setObject(); // 오브젝트 생성
 
+
     addEventListener("wheel", OnMouseWheel);
     addEventListener("mousemove", onMouseMove);
 }
 
 // [오브젝트 생성, 관리]
 function setObject(){
-    // 디버깅용 오브젝트
-    function debbugingObject(){
-        let geometry = new THREE.BoxGeometry( 1, 1, 1 );
-        let material = new THREE.MeshPhongMaterial( { color: 0xff0000 } );
-        const cube1 = new THREE.Mesh( geometry, material );
-        cube1.position.set(0,0,0);
-        cube1.rotation.set(30,60,20);
-        scene.add( cube1 );
-        // 디버깅용 오브젝트    
-        geometry = new THREE.BoxGeometry( 50, 50, 50 );
-        material = new THREE.MeshPhongMaterial( { color: 0x00ffff } );
-        const cube2 = new THREE.Mesh( geometry, material );
-        cube2.position.set(0,5,-50);
-        cube2.rotation.set(20,70,20);
-        scene.add( cube2 );
-    }
-  //debbugingObject();
 
     setObjectDepthLv1();      
     setBasicObject();
@@ -86,7 +72,7 @@ function setObject(){
 function setBasicObject(){
    
     const plane = new THREE.Mesh( new THREE.PlaneGeometry( 1000 , 1000 ),
-                    new THREE.MeshPhongMaterial( {color: 0xf0f0f0} ) );
+                    new THREE.MeshLambertMaterial( {color: 0xf0f0f0} ) );
     plane.position.set(0,-2,0);
     plane.rotation.x = Math.PI * -0.5;
     const texture = new THREE.TextureLoader().load( 'asset/Checker.png' );
@@ -94,40 +80,67 @@ function setBasicObject(){
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set( 300, 300 );
     plane.material.map = texture;
+    plane.castShadow = true;
 
     basicObject.add( plane );
 }
 
-function setObjectDepthLv1(){
-    /*Defalut scale = 0.05
-     * 블렌더 : THREE = 1 : 100
+
+// ai 도움 받았습니다
+async function setObjectDepthLv1() {
+    /* 
+     * 건물의 기준은 왼쪽 아래 vertex 중간에 위치
      * 건물 오브젝트의 SACLE 범위 : 4배 ~ 7배
      */
     const BUILDING_SPACE = 0.5; // m 건물 간격
-    const MAX_OBJ_SCALE = 0.07;
-    const MIN_OBJ_SCALE = 0.04;
-    const SCALE_FACTOR = 100; // 블렌더 : THREE = 1 : 100
-    let objPos = new THREE.Vector3();
-    let curScale = 0;
-    
-    objPos = new THREE.Vector3(-80, -2, -20);
-    
-    for(let i=0; i<15; i++){
-        fbxLoader.load('asset/Building.fbx', (object) => {
+    const MAX_OBJ_SCALE = 7;
+    const MIN_OBJ_SCALE = 4;
+    const MODEL_WIDTH = 2;
+    const MODEL_HIGHT = 4;
+    let objPos = new THREE.Vector3(-80, -2, -55); //디버깅용 buildings들 시작점 
+    // let objPos = new THREE.Vector3(-80, -2, -20); 
 
-        curScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
-        objPos.x += curScale * 100;
-
-        object.scale.set(curScale, curScale, curScale);
-        
-        object.position.set(objPos.x, objPos.y, objPos.z);
-
-        objectsDepthLv1.add(object); 
-        
-        objPos.x += curScale * SCALE_FACTOR + BUILDING_SPACE;
+    let buildingLightColor = new THREE.Color();
+    const buildingMaterial = new THREE.MeshLambertMaterial({
+        color: 0x808080,
+        side: THREE.DoubleSide
     });
+    const model = await glfLoader.loadAsync('asset/Building.glb');
+   
+ 
+    for (let i = 0; i < 15; i++) {
+
+       const object = model.scene.clone();
+
+       object.traverse((child) => {
+            if (child.isMesh) {
+                child.material = buildingMaterial;
+                child.castShadow = true;
+                child.receiveShadow = true;
+            }
+        });
+        
+        const modelScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
+
+        object.scale.set(modelScale, modelScale, modelScale);
+        object.position.set(objPos.x, objPos.y, objPos.z);
+        
+        objPos.x += MODEL_WIDTH * modelScale + BUILDING_SPACE ;
+
+        buildingLightColor.setRGB(THREE.MathUtils.randFloat(0, 0.7),
+            THREE.MathUtils.randFloat(0, 0.7),
+            THREE.MathUtils.randFloat(0, 0.7));
+        const buildingLigt = new THREE.PointLight(buildingLightColor, 1000, 0);
+        
+        object.add(buildingLigt);
+        buildingLigt.position.set(MODEL_WIDTH/2,MODEL_HIGHT/2,0) 
+        //상대위치 [해결] 
+        // building 이 스케일 되면서 포지션도 자동으로 스케일 되므로, scale되기 이전의 위치를 기준으로 배치
+        
+        objectsDepthLv1.add(object);
     }
 }
+
 
 // [애니메이션_루프]
 function animation(){
@@ -173,13 +186,11 @@ function OnMouseWheel(e){
     
     //theta = THREE.MathUtils.clamp(theta, 0.2, 3); // theta값 제한
     
-    light.position.set(radius * Math.cos(theta)
+    sunLight.position.set(radius * Math.cos(theta)
         ,1 + radius * Math.sin(theta)
         ,5)
-    light.target.position.set(0,0,0);
-    // light.position.x = radius * Math.cos(theta);
-    // light.position.y = 1 + radius * Math.sin(theta);
-    // light.position.z = 5; // z축 고정
+    sunLight.target.position.set(0,0,0);
+
 
     //console.log("theta :" + theta+ ", light position x :" + light.position.x+", y :" + light.position.y+"\n");
     
@@ -210,14 +221,14 @@ function cameraRotate(){
             camera.rotation.x = 0;
         }
         else{
-            console.log("lerp x");
+            //console.log("lerp x");
             camera.rotation.x = THREE.MathUtils.lerp(camera.rotation.x, 0, DAMPING_SPEED);
         }
         if (Math.abs(camera.rotation.y ) < NEAR_ZERO) {
             camera.rotation.y = 0;
         }
         else{
-            console.log("lerp y");
+            //console.log("lerp y");
             camera.rotation.y = THREE.MathUtils.lerp(camera.rotation.y, 0, DAMPING_SPEED);
         }
 
