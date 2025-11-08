@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import {GLTFLoader } from 'three/examples/jsm/Addons.js';
+import { Color } from 'three/webgpu';
 
 // 기본 설정
 let camera, scene, renderer, sunLight;
@@ -23,9 +24,17 @@ const ROTATE_SPEED = 0.01; // 카메라 회전 speed
 const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(5);
 const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
-// light 원운동 관련 변수
+// light 관련 변수
+const morningColor = new Color(255,60,0)
+const nightColor = new Color(15,15,55)
 const LIGHT_ROTATE_SPEED = 0.1;
-let theta = 0; 
+const RADIUS = 10; // 원 운동 반지름
+const MAX_THETA = 4;
+const MIN_THETA = 0.2;
+let theta = MIN_THETA; 
+let sunLightIntensity = 0.08;
+let sunLightColor = morningColor.clone();
+
 
 // [기본 설정]
 function init() {
@@ -37,7 +46,7 @@ function init() {
 
     scene = new THREE.Scene();
 
-    sunLight = new THREE.DirectionalLight(0xFFFFFF,1.0); // 나중에 수정 
+    sunLight = new THREE.DirectionalLight(sunLightColor, sunLightIntensity); // 나중에 수정 
     sunLight.position.set(50,50,30);
     sunLight.castShadow = true;
     sunLight.target.position.set(0,0,0);
@@ -86,7 +95,7 @@ function setBasicObject(){
 }
 
 
-// ai 도움 받았습니다
+// import 관련해 ai 도움 받았습니다
 async function setObjectDepthLv1() {
     /* 
      * 건물의 기준은 왼쪽 아래 vertex 중간에 위치
@@ -97,11 +106,11 @@ async function setObjectDepthLv1() {
     const MIN_OBJ_SCALE = 4;
     const MODEL_WIDTH = 2;
     const MODEL_HIGHT = 4;
-    let objPos = new THREE.Vector3(-80, -2, -55); //디버깅용 buildings들 시작점 
+    let objPos = new THREE.Vector3(-80, -2, -55); 
     // let objPos = new THREE.Vector3(-80, -2, -20); 
 
     let buildingLightColor = new THREE.Color();
-    const buildingMaterial = new THREE.MeshLambertMaterial({
+    const buildingMaterial = new THREE.MeshPhongMaterial ({
         color: 0x808080,
         side: THREE.DoubleSide
     });
@@ -130,7 +139,7 @@ async function setObjectDepthLv1() {
         buildingLightColor.setRGB(THREE.MathUtils.randFloat(0, 0.7),
             THREE.MathUtils.randFloat(0, 0.7),
             THREE.MathUtils.randFloat(0, 0.7));
-        const buildingLigt = new THREE.PointLight(buildingLightColor, 1000, 0);
+        const buildingLigt = new THREE.PointLight(buildingLightColor, 300, 0);
         
         object.add(buildingLigt);
         buildingLigt.position.set(MODEL_WIDTH/2,MODEL_HIGHT/2,0) 
@@ -141,6 +150,9 @@ async function setObjectDepthLv1() {
     }
 }
 
+function setObjectDepthLv0(){
+
+}
 
 // [애니메이션_루프]
 function animation(){
@@ -174,25 +186,31 @@ function OnMouseWheel(e){
  * ligth pos를 theta값 원 운동
  * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
 */ 
-    const radius = 5; // 원 운동 반지름
+    
     
     // 0 ~ 2π
         if(e.deltaY > 0){
             theta += LIGHT_ROTATE_SPEED;
+            sunLightIntensity -= 0.002
+            console.log("down")
         }
         else{
             theta -= LIGHT_ROTATE_SPEED;
+            sunLightIntensity += 0.002
+            console.log("up")
         }
     
-    //theta = THREE.MathUtils.clamp(theta, 0.2, 3); // theta값 제한
+    theta = THREE.MathUtils.clamp(theta, MIN_THETA, MAX_THETA); // theta값 제한
+    sunLightIntensity = THREE.MathUtils.clamp(sunLightIntensity, 0.001 , 0.09)
+
+    const interpolationFactor = (theta - MIN_THETA) / (MAX_THETA - MIN_THETA);
+    sunLightColor.lerpColors(morningColor,nightColor,interpolationFactor*1.2) 
+    sunLight.intensity = sunLightIntensity;
+    sunLight.color = sunLightColor
+    sunLight.position.set(RADIUS * Math.cos(theta), 1 + RADIUS * Math.sin(theta) ,5)
     
-    sunLight.position.set(radius * Math.cos(theta)
-        ,1 + radius * Math.sin(theta)
-        ,5)
-    sunLight.target.position.set(0,0,0);
-
-
-    //console.log("theta :" + theta+ ", light position x :" + light.position.x+", y :" + light.position.y+"\n");
+    console.log("light intensity : " + sunLight.intensity);
+    console.log("theta :" + theta+ ", light position x :" + sunLight.position.x+", y :" + sunLight.position.y+"\n");
     
 }
 
