@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import {GLTFLoader } from 'three/examples/jsm/Addons.js';
-import { Color } from 'three/webgpu';
+import { DisplayP3ColorSpace } from 'three/examples/jsm/math/ColorSpaces.js';
+import { Clock, Color } from 'three/webgpu';
 
 // 기본 설정
 let camera, scene, renderer, sunLight;
 let mouse = new THREE.Vector2();
 const h_scr = window.innerWidth;
 const v_scr = window.innerHeight;
+let clock = new THREE.Clock(true);
 
 // 오브젝트 그룹 
 const basicObject = new THREE.Group(); // plane같은 기본 오브젝트
@@ -25,21 +27,28 @@ const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(5);
 const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
 // light 관련 변수
-const morningColor = new Color(255,60,0)
-const nightColor = new Color(15,15,55)
+const morningColor = new Color(100,100,100)
+const nightColor = new Color(0,0,0)
 const LIGHT_ROTATE_SPEED = 0.1;
 const RADIUS = 10; // 원 운동 반지름
 const MAX_THETA = 4;
 const MIN_THETA = 0.2;
 let theta = MIN_THETA; 
-let sunLightIntensity = 0.08;
+let sunLightIntensity = 0.1;
 let sunLightColor = morningColor.clone();
+
+// time 관련 변수
+const DAYDURATiON = 30; // 하루 주기 
+let isNight;
+
+
 
 
 // [기본 설정]
 function init() {
     console.log('init start');
 
+    clock.start();
     camera = new THREE.PerspectiveCamera( 60, h_scr/v_scr, 0.1, 1000 );
     camera.position.set(0, 0, 1.5);
     camera.lookAt(0,0,0); 
@@ -160,9 +169,9 @@ function animation(){
 
     cameraRotate();
     
-    // cube.rotateX(0.03);  
-    // cube.rotateY(0.01); 
-    //light.color.setHex(0xffffff * Math.random());
+    dayCycle();
+    
+
     renderer.render(scene, camera);
 }
 
@@ -185,9 +194,7 @@ function OnMouseWheel(e){
  * e.deltaY 값이 양수 or 음수에 따라, light pos가 원 운동
  * ligth pos를 theta값 원 운동
  * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
-*/ 
-    
-    
+*/     
     // 0 ~ 2π
         if(e.deltaY > 0){
             theta += LIGHT_ROTATE_SPEED;
@@ -254,6 +261,12 @@ function cameraRotate(){
    
     //console.log("camera rotation x :" + camera.rotation.x + ", y :" + camera.rotation.y);
 }  
+
+function dayCycle(){
+    console.log(clock.getElapsedTime())
+    sunLightIntensity = 0.5 + Math.sin( 2.0 * Math.PI * clock.getElapsedTime()/DAYDURATiON  )/2.0;
+    sunLight.color.lerpColors(nightColor,morningColor, sunLightIntensity);
+}
 
 init();    
 animation();
