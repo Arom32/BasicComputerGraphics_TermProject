@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import {GLTFLoader } from 'three/examples/jsm/Addons.js';
-import { DisplayP3ColorSpace } from 'three/examples/jsm/math/ColorSpaces.js';
 import { Clock, Color } from 'three/webgpu';
 
 // 기본 설정
@@ -20,26 +19,26 @@ const objectsDepthLv2 = new THREE.Group(); // depth Lv2  원거리
 const glfLoader = new GLTFLoader();
 
 // 카메라 회전 관련 상수
-const DAMPING_SPEED = 0.1; // 원위치로 회귀 speed
+const DAMPING_SPEED = 0.05; // 원위치로 회귀 speed
 const INVALID_MOVING_AREA = 0.9; // 마우스 움직임 반영하지 않는 내부 비율. 
 const ROTATE_SPEED = 0.01; // 카메라 회전 speed
-const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(5);
+const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(10);
 const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
 // light 관련 변수
-const morningColor = new Color(100,100,100)
-const nightColor = new Color(0,0,0)
-const LIGHT_ROTATE_SPEED = 0.1;
-const RADIUS = 10; // 원 운동 반지름
-const MAX_THETA = 4;
-const MIN_THETA = 0.2;
-let theta = MIN_THETA; 
+const morningColor = new Color(	60, 40, 40)
+const nightColor = new Color(0,10,20)
+// const LIGHT_ROTATE_SPEED = 0.1;
+// const RADIUS = 10; // 원 운동 반지름
+// const MAX_THETA = 4;
+// const MIN_THETA = 0.2;
+// let theta = MIN_THETA; 
 let sunLightIntensity = 0.1;
 let sunLightColor = morningColor.clone();
 
 // time 관련 변수
-const DAYDURATiON = 30; // 하루 주기 
-let isNight;
+const DAYDURATiON = 15; // 하루 주기 
+let isNight = false;
 
 
 
@@ -49,8 +48,8 @@ function init() {
     console.log('init start');
 
     clock.start();
-    camera = new THREE.PerspectiveCamera( 60, h_scr/v_scr, 0.1, 1000 );
-    camera.position.set(0, 0, 1.5);
+    camera = new THREE.PerspectiveCamera( 70, h_scr/v_scr, 0.1, 1000 );
+    camera.position.set(0, -0.2, 1.5); 
     camera.lookAt(0,0,0); 
 
     scene = new THREE.Scene();
@@ -71,7 +70,7 @@ function init() {
     setObject(); // 오브젝트 생성
 
 
-    addEventListener("wheel", OnMouseWheel);
+    //addEventListener("wheel", OnMouseWheel);
     addEventListener("mousemove", onMouseMove);
 }
 
@@ -80,6 +79,7 @@ function setObject(){
 
     setObjectDepthLv1();      
     setBasicObject();
+    setObjectDepthLv0();
     scene.add(basicObject);
     scene.add(objectsDepthLv0);
     scene.add(objectsDepthLv1);
@@ -89,40 +89,48 @@ function setObject(){
 //[오브젝트 _ 기본 오브젝트 그룹]
 function setBasicObject(){
    
-    const plane = new THREE.Mesh( new THREE.PlaneGeometry( 1000 , 1000 ),
+    const floor = new THREE.Mesh( new THREE.PlaneGeometry( 1000 , 1000 ),
                     new THREE.MeshLambertMaterial( {color: 0xf0f0f0} ) );
-    plane.position.set(0,-2,0);
-    plane.rotation.x = Math.PI * -0.5;
+    floor.position.set(0,-2,0);
+    floor.rotation.x = Math.PI * -0.5;
     const texture = new THREE.TextureLoader().load( 'asset/Checker.png' );
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set( 300, 300 );
-    plane.material.map = texture;
-    plane.castShadow = true;
+    floor.material.map = texture;
+    floor.castShadow = true;
+    basicObject.add( floor );
 
-    basicObject.add( plane );
+    const sky = new THREE.Mesh( new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial( {color: 0xA6DAF4}));
+    sky.position.set(0,0, -100);
+    basicObject.add(sky);
 }
 
 
-// import 관련해 ai 도움 받았습니다
+//모델 import 관련해 ai 도움 받았습니다
 async function setObjectDepthLv1() {
     /* 
      * 건물의 기준은 왼쪽 아래 vertex 중간에 위치
      * 건물 오브젝트의 SACLE 범위 : 4배 ~ 7배
      */
     const BUILDING_SPACE = 0.5; // m 건물 간격
-    const MAX_OBJ_SCALE = 7;
-    const MIN_OBJ_SCALE = 4;
-    const MODEL_WIDTH = 2;
-    const MODEL_HIGHT = 4;
-    let objPos = new THREE.Vector3(-80, -2, -55); 
-    // let objPos = new THREE.Vector3(-80, -2, -20); 
 
+    const MAX_OBJ_SCALE = 7; 
+    const MIN_OBJ_SCALE = 4;
+
+    const MODEL_WIDTH = 2; //모델의 실제 크기
+    const MODEL_HIGHT = 4;
+
+    let objPos = new THREE.Vector3(-80, -2, -55); 
+    // [수정 예정] 빠른 변경을 위해 objPos 배치 확인 용으로 선언해놓았으나
+    // setObject에서 ObjectDepthLv1 그룹의 위치를 지정할 예정
+   
     let buildingLightColor = new THREE.Color();
     const buildingMaterial = new THREE.MeshPhongMaterial ({
         color: 0x808080,
         side: THREE.DoubleSide
     });
+
     const model = await glfLoader.loadAsync('asset/Building.glb');
    
  
@@ -135,8 +143,7 @@ async function setObjectDepthLv1() {
                 child.material = buildingMaterial;
                 child.castShadow = true;
                 child.receiveShadow = true;
-            }
-        });
+            }});
         
         const modelScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
 
@@ -149,6 +156,7 @@ async function setObjectDepthLv1() {
             THREE.MathUtils.randFloat(0, 0.7),
             THREE.MathUtils.randFloat(0, 0.7));
         const buildingLigt = new THREE.PointLight(buildingLightColor, 300, 0);
+        buildingLigt.visible = false;
         
         object.add(buildingLigt);
         buildingLigt.position.set(MODEL_WIDTH/2,MODEL_HIGHT/2,0) 
@@ -159,8 +167,22 @@ async function setObjectDepthLv1() {
     }
 }
 
-function setObjectDepthLv0(){
+async function setObjectDepthLv0(){
+    const StreetLightMaterial = new THREE.MeshPhongMaterial ({
+        color: 0x808080,
+        side: THREE.DoubleSide
+    });
+    const model = await glfLoader.loadAsync('asset/StreetLight.glb');
 
+    const object = model.scene.clone();
+    object.traverse((child) => {
+            if (child.isMesh) {
+                child.material = StreetLightMaterial;
+            }
+        });
+    object.position.set(0,-2,-2);
+    object.rotateY(45)
+    objectsDepthLv0.add(object);
 }
 
 // [애니메이션_루프]
@@ -171,7 +193,7 @@ function animation(){
     
     dayCycle();
     
-
+    debug();
     renderer.render(scene, camera);
 }
 
@@ -187,39 +209,33 @@ function onMouseMove(e) {
     //console.log("x : " +cursor.x +", y : " +cursor.y)
 }
 
-// [이벤트 처리 _ 마우스 휠]
-function OnMouseWheel(e){
-/* 마우스 휠 값에 따른, light 처리
- * e.deltaY : 휠 스크롤 값, (-_down, +_up)
- * e.deltaY 값이 양수 or 음수에 따라, light pos가 원 운동
- * ligth pos를 theta값 원 운동
- * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
-*/     
-    // 0 ~ 2π
-        if(e.deltaY > 0){
-            theta += LIGHT_ROTATE_SPEED;
-            sunLightIntensity -= 0.002
-            console.log("down")
-        }
-        else{
-            theta -= LIGHT_ROTATE_SPEED;
-            sunLightIntensity += 0.002
-            console.log("up")
-        }
+// // [이벤트 처리 _ 마우스 휠]
+// function OnMouseWheel(e){
+// /* 마우스 휠 값에 따른, light 처리
+//  * e.deltaY : 휠 스크롤 값, (-_down, +_up)
+//  * e.deltaY 값이 양수 or 음수에 따라, light pos가 원 운동
+//  * ligth pos를 theta값 원 운동
+//  * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
+// */     
+//     // 0 ~ 2π
+//         if(e.deltaY > 0){
+//             theta += LIGHT_ROTATE_SPEED;
+//             sunLightIntensity -= 0.002
+//         }
+//         else{
+//             theta -= LIGHT_ROTATE_SPEED;
+//             sunLightIntensity += 0.002
+//         }
     
-    theta = THREE.MathUtils.clamp(theta, MIN_THETA, MAX_THETA); // theta값 제한
-    sunLightIntensity = THREE.MathUtils.clamp(sunLightIntensity, 0.001 , 0.09)
+//     theta = THREE.MathUtils.clamp(theta, MIN_THETA, MAX_THETA); // theta값 제한
+//     sunLightIntensity = THREE.MathUtils.clamp(sunLightIntensity, 0.001 , 0.09)
 
-    const interpolationFactor = (theta - MIN_THETA) / (MAX_THETA - MIN_THETA);
-    sunLightColor.lerpColors(morningColor,nightColor,interpolationFactor*1.2) 
-    sunLight.intensity = sunLightIntensity;
-    sunLight.color = sunLightColor
-    sunLight.position.set(RADIUS * Math.cos(theta), 1 + RADIUS * Math.sin(theta) ,5)
-    
-    console.log("light intensity : " + sunLight.intensity);
-    console.log("theta :" + theta+ ", light position x :" + sunLight.position.x+", y :" + sunLight.position.y+"\n");
-    
-}
+//     const interpolationFactor = (theta - MIN_THETA) / (MAX_THETA - MIN_THETA);
+//     sunLightColor.lerpColors(morningColor,nightColor,interpolationFactor*1.2) 
+//     sunLight.intensity = sunLightIntensity;
+//     sunLight.color = sunLightColor
+//     sunLight.position.set(RADIUS * Math.cos(theta), 1 + RADIUS * Math.sin(theta) ,5)
+// }
 
 // [ 애니메이션 _ 카메라 회전 ] 
 function cameraRotate(){ 
@@ -238,8 +254,8 @@ function cameraRotate(){
         camera.rotation.y = THREE.MathUtils.clamp(camera.rotation.y, -MAX_ROTATE_ANGLE, MAX_ROTATE_ANGLE);
     }
     else{ // 내부 영역
-        // 0에 충분히 가까워졌음에도 계속 lerp 연산이 일어남 
-        // 0에 충분히 근접 시(NEAR_ZERO 미만) 0으로 고정
+        // [문제] 0에 충분히 가까워졌음에도 계속 lerp 연산이 일어남 
+        // [해결] 0에 충분히 근접 시(NEAR_ZERO 미만) 0으로 고정
         // 더 좋은 방법?
         
         if (Math.abs(camera.rotation.x ) < NEAR_ZERO) {
@@ -256,16 +272,57 @@ function cameraRotate(){
             //console.log("lerp y");
             camera.rotation.y = THREE.MathUtils.lerp(camera.rotation.y, 0, DAMPING_SPEED);
         }
-
     }
    
-    //console.log("camera rotation x :" + camera.rotation.x + ", y :" + camera.rotation.y);
+    
 }  
 
+function toggleDayNight(){
+    console.log("isnight : "+ isNight );
+    const MIN_DELAY = 10;
+    const MAX_DELAY = 1000;
+    
+    objectsDepthLv1.children.forEach(building =>{
+        const randomDelay = THREE.MathUtils.randInt(MIN_DELAY, MAX_DELAY);
+
+        // 누적된 지연 시간 후에 조명 상태 변경 실행
+        setTimeout(() => {
+            building.traverse(child => {
+                if (child.isPointLight) {
+                    child.visible = isNight;
+                }
+            });
+        }, randomDelay); 
+    });
+}
+
 function dayCycle(){
-    console.log(clock.getElapsedTime())
-    sunLightIntensity = 0.5 + Math.sin( 2.0 * Math.PI * clock.getElapsedTime()/DAYDURATiON  )/2.0;
+    /* 
+    *  런타임 t에 따라 Intensity 변경 + 컬러 lerp
+    *       sunLightIntensity = 0.0 ~ 1.0,
+    *       주기 = DAYDURATiON 
+    *  밤낮이 바뀌는 시점에 toggleDayNight() 호출
+    */
+    sunLightIntensity = 0.5 + Math.sin( 2.0 * Math.PI * clock.getElapsedTime() / DAYDURATiON  )/2.0;
+    
+    const CurrentIsNight = sunLightIntensity < 0.2;
+    
+    if(isNight != CurrentIsNight){ //밤낮이 바뀌는 지점에서만 실행 
+          isNight = CurrentIsNight;
+          toggleDayNight();          
+    } 
+
+    sunLight.intensity = THREE.MathUtils.clamp(sunLightIntensity,0,0.3);
     sunLight.color.lerpColors(nightColor,morningColor, sunLightIntensity);
+}
+
+function debug(){
+
+    // console.log("light intensity : " + sunLight.intensity);
+    // console.log("theta :" + theta+ ", light position x :" + sunLight.position.x+", y :" + sunLight.position.y+"\n");
+    // console.log("camera rotation x :" + camera.rotation.x + ", y :" + camera.rotation.y);
+    // console.log(clock.getElapsedTime(), sunLightIntensity)
+    // console.log(clock.getElapsedTime())
 }
 
 init();    
