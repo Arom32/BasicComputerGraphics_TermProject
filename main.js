@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {GLTFLoader } from 'three/examples/jsm/Addons.js';
 import { Clock, Color } from 'three/webgpu';
 
+
 // 기본 설정
 let camera, scene, renderer, sunLight;
 let mouse = new THREE.Vector2();
@@ -41,18 +42,22 @@ const DAYDURATiON = 15; // 하루 주기
 let isNight = false;
 
 
-
-
 // [기본 설정]
 function init() {
     console.log('init start');
-
     clock.start();
+    scene = new THREE.Scene();
+
     camera = new THREE.PerspectiveCamera( 70, h_scr/v_scr, 0.1, 1000 );
     camera.position.set(0, -0.2, 1.5); 
     camera.lookAt(0,0,0); 
 
-    scene = new THREE.Scene();
+    renderer = new THREE.WebGLRenderer();
+    renderer.setClearColor( 0xf0f0f0 );
+    renderer.setSize( h_scr, v_scr ); 
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    document.body.appendChild(renderer.domElement); 
 
     sunLight = new THREE.DirectionalLight(sunLightColor, sunLightIntensity); // 나중에 수정 
     sunLight.position.set(50,50,30);
@@ -61,10 +66,7 @@ function init() {
     scene.add(sunLight);
 
 
-    renderer = new THREE.WebGLRenderer();
-    renderer.setClearColor( 0xf0f0f0 );
-    renderer.setSize( h_scr, v_scr );       
-    document.body.appendChild(renderer.domElement); 
+   
     
 
     setObject(); // 오브젝트 생성
@@ -125,44 +127,47 @@ async function setObjectDepthLv1() {
     // [수정 예정] 빠른 변경을 위해 objPos 배치 확인 용으로 선언해놓았으나
     // setObject에서 ObjectDepthLv1 그룹의 위치를 지정할 예정
    
-    let buildingLightColor = new THREE.Color();
-    const buildingMaterial = new THREE.MeshPhongMaterial ({
+
+    const buildingMaterial = new THREE.MeshLambertMaterial ({
         color: 0x808080,
         side: THREE.DoubleSide
     });
 
     const model = await glfLoader.loadAsync('asset/Building.glb');
-   
- 
-    for (let i = 0; i < 15; i++) {
-
-       const object = model.scene.clone();
-
-       object.traverse((child) => {
+    model.scene.traverse((child) => {
             if (child.isMesh) {
                 child.material = buildingMaterial;
                 child.castShadow = true;
-                child.receiveShadow = true;
+                //child.receiveShadow = true;
             }});
-        
-        const modelScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
+ 
+    for (let i = 0; i < 15; i++) {
 
+        const object = model.scene.clone();
+
+        const modelScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
         object.scale.set(modelScale, modelScale, modelScale);
         object.position.set(objPos.x, objPos.y, objPos.z);
-        
         objPos.x += MODEL_WIDTH * modelScale + BUILDING_SPACE ;
 
+        const buildingLightColor = new THREE.Color();
         buildingLightColor.setRGB(THREE.MathUtils.randFloat(0, 0.7),
-            THREE.MathUtils.randFloat(0, 0.7),
-            THREE.MathUtils.randFloat(0, 0.7));
-        const buildingLigt = new THREE.PointLight(buildingLightColor, 300, 0);
-        buildingLigt.visible = false;
-        
-        object.add(buildingLigt);
-        buildingLigt.position.set(MODEL_WIDTH/2,MODEL_HIGHT/2,0) 
+                                    THREE.MathUtils.randFloat(0, 0.7),
+                                    THREE.MathUtils.randFloat(0, 0.7));
+        //const buildingLight = new THREE.PointLight(buildingLightColor, 300, 0);
+
+        const buildingLightMaterial = new THREE.MeshLambertMaterial( {color: buildingLightColor} );
+        const buildingLight = new THREE.Mesh( new THREE.PlaneGeometry(MODEL_WIDTH-0.1, MODEL_HIGHT), buildingLightMaterial);
+
+        buildingLight.name = "BuildingLight";
+        buildingLightMaterial.emissive = buildingLightColor;
+        buildingLight.visible = false;
+
+        object.add(buildingLight);
+        buildingLight.position.set(MODEL_WIDTH/2,MODEL_HIGHT/2,MODEL_WIDTH/3) 
         //상대위치 [해결] 
         // building 이 스케일 되면서 포지션도 자동으로 스케일 되므로, scale되기 이전의 위치를 기준으로 배치
-        
+
         objectsDepthLv1.add(object);
     }
 }
@@ -288,7 +293,7 @@ function toggleDayNight(){
         // 누적된 지연 시간 후에 조명 상태 변경 실행
         setTimeout(() => {
             building.traverse(child => {
-                if (child.isPointLight) {
+                if (child.name === "BuildingLight") {
                     child.visible = isNight;
                 }
             });
