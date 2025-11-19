@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {GLTFLoader } from 'three/examples/jsm/Addons.js';
-import { Clock, Color } from 'three/webgpu';
+import { Color } from 'three/webgpu';
 
 
 // 기본 설정
-let camera, scene, renderer, sunLight;
+let camera, scene, renderer, sunLight, ambientLight;
 let mouse = new THREE.Vector2();
 const h_scr = window.innerWidth;
 const v_scr = window.innerHeight;
@@ -29,11 +29,8 @@ const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 // light 관련 변수
 const morningColor = new Color(	60, 40, 40)
 const nightColor = new Color(0,10,20)
-// const LIGHT_ROTATE_SPEED = 0.1;
-// const RADIUS = 10; // 원 운동 반지름
-// const MAX_THETA = 4;
-// const MIN_THETA = 0.2;
-// let theta = MIN_THETA; 
+
+const SUN_RADIUS = 100;
 let sunLightIntensity = 0.1;
 let sunLightColor = morningColor.clone();
 
@@ -59,20 +56,18 @@ function init() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement); 
 
+    ambientLight = new THREE.AmbientLight(0xffffff, 0.5); 
+    scene.add(ambientLight);
+
     sunLight = new THREE.DirectionalLight(sunLightColor, sunLightIntensity); // 나중에 수정 
     sunLight.position.set(50,50,30);
     sunLight.castShadow = true;
     sunLight.target.position.set(0,0,0);
     scene.add(sunLight);
 
-
-   
-    
-
     setObject(); // 오브젝트 생성
 
-
-    //addEventListener("wheel", OnMouseWheel);
+    addEventListener("wheel", OnMouseWheel);
     addEventListener("mousemove", onMouseMove);
 }
 
@@ -83,6 +78,8 @@ function setObject(){
     setBasicObject();
     setObjectDepthLv0();
     scene.add(basicObject);
+    
+    objectsDepthLv0.position.set(-8, -2, -3);
     scene.add(objectsDepthLv0);
     scene.add(objectsDepthLv1);
     scene.add(objectsDepthLv2);
@@ -95,12 +92,14 @@ function setBasicObject(){
                     new THREE.MeshLambertMaterial( {color: 0xf0f0f0} ) );
     floor.position.set(0,-2,0);
     floor.rotation.x = Math.PI * -0.5;
+
     const texture = new THREE.TextureLoader().load( 'asset/Checker.png' );
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
     texture.repeat.set( 300, 300 );
     floor.material.map = texture;
-    floor.castShadow = true;
+
+    floor.receiveShadow = true;
     basicObject.add( floor );
 
     const sky = new THREE.Mesh( new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial( {color: 0xA6DAF4}));
@@ -134,28 +133,27 @@ async function setObjectDepthLv1() {
     });
 
     const model = await glfLoader.loadAsync('asset/Building.glb');
+
     model.scene.traverse((child) => {
             if (child.isMesh) {
                 child.material = buildingMaterial;
                 child.castShadow = true;
-                //child.receiveShadow = true;
             }});
  
     for (let i = 0; i < 15; i++) {
 
         const object = model.scene.clone();
-
+        
         const modelScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
         object.scale.set(modelScale, modelScale, modelScale);
         object.position.set(objPos.x, objPos.y, objPos.z);
         objPos.x += MODEL_WIDTH * modelScale + BUILDING_SPACE ;
 
-        const buildingLightColor = new THREE.Color();
-        buildingLightColor.setRGB(THREE.MathUtils.randFloat(0, 0.7),
+        const buildingLightColor = new THREE.Color(
+                                    THREE.MathUtils.randFloat(0, 0.7),
                                     THREE.MathUtils.randFloat(0, 0.7),
                                     THREE.MathUtils.randFloat(0, 0.7));
-        //const buildingLight = new THREE.PointLight(buildingLightColor, 300, 0);
-
+ 
         const buildingLightMaterial = new THREE.MeshLambertMaterial( {color: buildingLightColor} );
         const buildingLight = new THREE.Mesh( new THREE.PlaneGeometry(MODEL_WIDTH-0.1, MODEL_HIGHT), buildingLightMaterial);
 
@@ -173,21 +171,35 @@ async function setObjectDepthLv1() {
 }
 
 async function setObjectDepthLv0(){
+    const STREETLIGHT_SPACE = 4; // m 가로등 간격
+    let objPosX = 0;
+
     const StreetLightMaterial = new THREE.MeshPhongMaterial ({
-        color: 0x808080,
-        side: THREE.DoubleSide
+        color: 0x3f3f3f,
+        side: THREE.DoubleSide,
     });
     const model = await glfLoader.loadAsync('asset/StreetLight.glb');
 
-    const object = model.scene.clone();
-    object.traverse((child) => {
+    model.scene.traverse((child) => {
             if (child.isMesh) {
                 child.material = StreetLightMaterial;
+                child.castShadow = true;
+                if(child.name !== "frame"){
+                    child.name = "streetLightBulb";
+                    child.material = StreetLightMaterial.clone();
+                    child.material.color = new THREE.Color(0xffffff);
+                    child.material.emissive = new THREE.Color(0xffffaa);
+                }
             }
         });
-    object.position.set(0,-2,-2);
-    object.rotateY(45)
-    objectsDepthLv0.add(object);
+
+    for (let i = 0; i < 4; i++){
+        const object = model.scene.clone();
+        object.position.x = objPosX;
+        objPosX += STREETLIGHT_SPACE;
+        object.rotation.y = Math.PI/6 ;
+        objectsDepthLv0.add(object);
+    }
 }
 
 // [애니메이션_루프]
@@ -214,33 +226,33 @@ function onMouseMove(e) {
     //console.log("x : " +cursor.x +", y : " +cursor.y)
 }
 
-// // [이벤트 처리 _ 마우스 휠]
-// function OnMouseWheel(e){
-// /* 마우스 휠 값에 따른, light 처리
-//  * e.deltaY : 휠 스크롤 값, (-_down, +_up)
-//  * e.deltaY 값이 양수 or 음수에 따라, light pos가 원 운동
-//  * ligth pos를 theta값 원 운동
-//  * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
-// */     
-//     // 0 ~ 2π
-//         if(e.deltaY > 0){
-//             theta += LIGHT_ROTATE_SPEED;
-//             sunLightIntensity -= 0.002
-//         }
-//         else{
-//             theta -= LIGHT_ROTATE_SPEED;
-//             sunLightIntensity += 0.002
-//         }
+// [이벤트 처리 _ 마우스 휠]
+function OnMouseWheel(e){
+/* 마우스 휠 값에 따른, light 처리
+ * e.deltaY : 휠 스크롤 값, (-_down, +_up)
+ * e.deltaY 값이 양수 or 음수에 따라, light pos가 원 운동
+ * ligth pos를 theta값 원 운동
+ * z축은 고정한 채, x,y축만 원 운동, target (0,0,0)-> 조절 예정
+*/     
+    // 0 ~ 2π
+        if(e.deltaY > 0){
+            theta += LIGHT_ROTATE_SPEED;
+            sunLightIntensity -= 0.002
+        }
+        else{
+            theta -= LIGHT_ROTATE_SPEED;
+            sunLightIntensity += 0.002
+        }
     
-//     theta = THREE.MathUtils.clamp(theta, MIN_THETA, MAX_THETA); // theta값 제한
-//     sunLightIntensity = THREE.MathUtils.clamp(sunLightIntensity, 0.001 , 0.09)
+    theta = THREE.MathUtils.clamp(theta, MIN_THETA, MAX_THETA); // theta값 제한
+    sunLightIntensity = THREE.MathUtils.clamp(sunLightIntensity, 0.001 , 0.09)
 
-//     const interpolationFactor = (theta - MIN_THETA) / (MAX_THETA - MIN_THETA);
-//     sunLightColor.lerpColors(morningColor,nightColor,interpolationFactor*1.2) 
-//     sunLight.intensity = sunLightIntensity;
-//     sunLight.color = sunLightColor
-//     sunLight.position.set(RADIUS * Math.cos(theta), 1 + RADIUS * Math.sin(theta) ,5)
-// }
+    const interpolationFactor = (theta - MIN_THETA) / (MAX_THETA - MIN_THETA);
+    sunLightColor.lerpColors(morningColor,nightColor,interpolationFactor*1.2) 
+    sunLight.intensity = sunLightIntensity;
+    sunLight.color = sunLightColor
+    sunLight.position.set(RADIUS * Math.cos(theta), 1 + RADIUS * Math.sin(theta) ,5)
+}
 
 // [ 애니메이션 _ 카메라 회전 ] 
 function cameraRotate(){ 
@@ -317,6 +329,13 @@ function dayCycle(){
           toggleDayNight();          
     } 
 
+    ambientLight.intensity = THREE.MathUtils.mapLinear(sunLightIntensity, 0.2, 1, 0.05, 0.6);
+    
+    // (선택 사항) 낮에는 흰색, 밤에는 푸른색으로 틴트 변경
+    const ambientDayColor = new THREE.Color(0xaa0000);
+    const ambientNightColor = new THREE.Color(0x111122);
+    ambientLight.color.lerpColors(ambientNightColor, ambientDayColor, sunLightIntensity);
+  
     sunLight.intensity = THREE.MathUtils.clamp(sunLightIntensity,0,0.3);
     sunLight.color.lerpColors(nightColor,morningColor, sunLightIntensity);
 }
