@@ -1,7 +1,5 @@
 import * as THREE from 'three';
 import {GLTFLoader } from 'three/examples/jsm/Addons.js';
-import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { color, lightTargetDirection } from 'three/tsl';
 import { Color } from 'three/webgpu';
 
 
@@ -39,8 +37,9 @@ const streetBulbDayColor =  new THREE.Color(0x000000);
 const streetBulbNightColor =  new THREE.Color(0xffffaa);
 
 // time 관련 변수
-const DAYDURATiON = 10; // 하루 주기 
+const DAYDURATiON = 60; // 하루 주기 
 let isNight = false;
+let worldTime = 0; // 런타임에 종속적 문제 해결을 위한 변수
 
 
 // [기본 설정]
@@ -75,6 +74,7 @@ function init() {
 
     addEventListener("mousemove", onMouseMove);
     addEventListener("mousedown", onMouseDown);
+    addEventListener("keydown", onKeyDown);
 }
 
 // [오브젝트 생성, 관리]
@@ -114,7 +114,7 @@ function setBasicObject(){
 }
 
 
-//모델 import 관련해 ai 도움 받았습니다
+//[ 근접 obj 생성 - 건물 ]  모델 import 관련해 ai 도움 받았습니다
 async function setObjectDepthLv1() {
     /* 
      * 건물의 기준은 왼쪽 아래 vertex 중간에 위치
@@ -176,6 +176,7 @@ async function setObjectDepthLv1() {
     }
 }
 
+// [ 최근접 obj 생성 - 가로등 ] 모델 import 관련해 ai 도움 받았습니다
 async function setObjectDepthLv0(){
     const STREETLIGHT_SPACE = 4; // m 가로등 간격
     let objPosX = 0;
@@ -211,7 +212,7 @@ async function setObjectDepthLv0(){
             }
         });
 
-        const light = new THREE.SpotLight(streetBulbNightColor, 10, 15, Math.PI/6);
+        const light = new THREE.SpotLight(streetBulbNightColor, 15, 15, Math.PI/6);
         light.penumbra = 0.3;
         light.target.position.set(0,0,0);
         light.name = "streetSpotLight";
@@ -248,12 +249,44 @@ function onMouseMove(e) {
     //console.log("x : " +cursor.x +", y : " +cursor.y)
 }
 
+function onKeyDown(e){
+   
+    switch(e.key){ 
+    case '1': 
+        setTime('day'); break
+    case '2': 
+        setTime('sunset') ; break
+    case '3':
+        setTime('night') ; break
+    default:
+        break;
+        
+    }
+    
+}
+
+function setTime( setWhen ){
+    if(setWhen === 'day'){
+        worldTime = DAYDURATiON * 0.25;
+    }
+    
+    if(setWhen === 'sunset'){
+        worldTime = DAYDURATiON * 0.5;
+    }
+
+    if(setWhen === 'night'){
+         worldTime = DAYDURATiON * 0.625; 
+    }
+}
+
+
+// [이벤트 처리 _ 마우스 클릭 ]
 function onMouseDown(e){
     raycast.setFromCamera(mouse, camera)
     turnOnOffStreetLight();
 }
 
-// [ 애니메이션 _ 카메라 회전 ] 
+// [ 마우스 이벤트 _ 카메라 회전 ] 
 function cameraRotate(){ 
 /* 마우스 위치에 따라 카메라 회전
  * 일정 영역(INVALID_MOVING_AREA) 외부, 확실하게 움직이려는 의사가 있을때만 회전 반영
@@ -323,6 +356,7 @@ function toggleDayNight(){
     });
 }
 
+// [ 마우스 이벤트 _ 클릭 ]
 function turnOnOffStreetLight(){
     let intersects = raycast.intersectObjects( objectsDepthLv0.children ); 
     if (intersects.length > 0) {
@@ -347,6 +381,7 @@ function turnOnOffStreetLight(){
         }
 }        
 
+// [ 애니메이션 _ 낮 밤 시간 변화]
 function dayCycle(){
     /* 
     *  런타임 t에 따라 Intensity 변경 + 컬러 lerp
@@ -354,13 +389,14 @@ function dayCycle(){
     *       주기 = DAYDURATiON 
     *  밤낮이 바뀌는 시점에 toggleDayNight() 호출
     */
+    const deltaT = clock.getDelta()
+    worldTime += deltaT  ;
 
-    const time = clock.getElapsedTime();
-    const angle = (time / DAYDURATiON) * 2.0 * Math.PI; 
+    const angle = (worldTime / DAYDURATiON) * 2.0 * Math.PI; 
 
     // sunLight.position.x = Math.cos(angle) * SUN_RADIUS; 
     // sunLight.position.y = Math.sin(angle) * SUN_RADIUS; 
-    // sunLight.position.z = Math.sin(angle) * SUN_RADIUS / 2.0;
+    sunLight.position.z = 20;
 
     sunLightIntensity = 0.5 + Math.sin( angle )/2.0;
     
@@ -372,12 +408,12 @@ function dayCycle(){
     } 
 
     ambientLight.intensity = THREE.MathUtils.mapLinear(sunLightIntensity, 0.2, 1, 0.05, 0.6);
-    
     const ambientDayColor = new THREE.Color(0xaa0000);
-    const ambientNightColor = new THREE.Color(0x111122);
+    const ambientNightColor = new THREE.Color(0x333355);
     ambientLight.color.lerpColors(ambientNightColor, ambientDayColor, sunLightIntensity);
   
-    sunLight.intensity = THREE.MathUtils.clamp(sunLightIntensity,0.01,0.2);
+
+    sunLight.intensity = THREE.MathUtils.clamp(sunLightIntensity,0.02,0.2);
     sunLight.color.lerpColors(nightColor,dayColor, sunLightIntensity);
 }
 
