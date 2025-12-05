@@ -31,12 +31,12 @@ const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
 // light 관련 변수
 const buildingLights = []; // treverse 최소화를 위한 배열
-const streeLights = [];
+const streetLights = [];
 let sunLightIntensity = 0.1;
 
 //movnig 관련 변수
 let buildingsLenght ; // 모든 빌딩이 배치된 총 길이
-let streetLightLenght ; // 가로등 배치 총 길이
+let streetLightLength ; // 가로등 배치 총 길이
 let mountainLenght ;
 let  moveSpeed = 1.5;
 const MAX_SPEED  = 2.0 ;
@@ -73,7 +73,6 @@ const textElement = document.createElement('div');
 
 // [기본 설정]
 function init() {
-    console.log('init start');
     clock.start();
     scene = new THREE.Scene();
     scene.background = COLOR.daySkyColor.clone();
@@ -107,21 +106,23 @@ function init() {
     addEventListener("keydown", onKeyDown);
 
     setGuideText();
+    renderer.setAnimationLoop(animation);
 }
 
 // [오브젝트 생성, 관리]
 function setObject(){
-
     setBasicObject();   
-    setObjectDepthLv1();      
-    setObjectDepthLv0();
-    setObjectDepthLv2();
     scene.add(basicObject);
     
+    setObjectDepthLv0();
     scene.add(objectsDepthLv0);
     objectsDepthLv0.position.set(-8, -2, -3);
+
+    setObjectDepthLv1();  
     scene.add(objectsDepthLv1);
     objectsDepthLv1.position.set(-50, -2, -20); 
+
+    setObjectDepthLv2();
     scene.add(objectsDepthLv2);
     objectsDepthLv2.position.set(-180, -2, -80)
 }
@@ -130,7 +131,7 @@ function setObject(){
 function setBasicObject(){
     // 바닥 1
     let floor = new THREE.Mesh( new THREE.PlaneGeometry( 200 , 100 ),
-                    new THREE.MeshLambertMaterial( {color: 0xf0f0f0} ) );
+                    new THREE.MeshLambertMaterial( {color: 0x68656e} ) );
     floor.position.set(0,-2,0);
     floor.rotation.x = Math.PI * -0.5;
 
@@ -170,7 +171,6 @@ function createSnow(){
             THREE.MathUtils.randFloat(0, 60),   
             THREE.MathUtils.randFloat(-40, 0)  
         );
-        
         velocities.push(THREE.MathUtils.randFloat(0.01, 0.2));
     }
 
@@ -191,6 +191,69 @@ function createSnow(){
     scene.add(snowPoints);
 }
 
+// [ 근거리 obj 생성 - 가로등 ] 모델 import 관련해 ai 도움 받았습니다
+async function setObjectDepthLv0(){
+    const STREETLIGHT_COUNT = 5;
+    const STREETLIGHT_SPACE = 4; // m 가로등 간격
+    let objPosX = 0;
+
+    const model = await glfLoader.loadAsync('asset/StreetLight.glb');
+    
+    const frameMaterial = new THREE.MeshPhongMaterial({
+        color: 0x3f3f3f,
+        side: THREE.DoubleSide,
+    });
+    
+    const bulbMaterial = frameMaterial.clone();
+    bulbMaterial.color.setHex(0xffffff);
+    bulbMaterial.emissive = COLOR.streetBulbDayColor;
+
+    // 여기서 scene은 가로등 모델 자체를 의미, 가로등 기본 설정
+    model.scene.traverse((child) => {
+            if (child.isMesh) {
+                child.material = frameMaterial;
+                child.castShadow = true;
+                if(child.name !== "frame"){
+                    child.name = "streetLightBulb"; 
+                    // 모델 내부의 전등 역할을 하는 모델은 Ligjt1, 2로 명명 되어 있어, 내부에서 통일
+                    // 이후 클릭 이벤트 발생 시, 탐색을 위한 명명
+                }
+                else {
+                child.material = frameMaterial;
+                }
+            }
+        });
+
+    
+    // 가로등 생성
+    for (let i = 0; i < STREETLIGHT_COUNT; i++){
+        const object = model.scene.clone();
+
+        object.position.x = objPosX;
+        object.rotation.y = Math.PI/6 ;
+        
+        object.traverse((child) => {
+            if (child.isMesh && child.name === "streetLightBulb") {
+                child.material = child.material.clone(); 
+            }
+            streetLights.push(child); // 해당 배열을 기준으로 raycasting 검사
+        });
+
+        const light = new THREE.SpotLight(COLOR.streetBulbNightColor, 15, 15, Math.PI/6);
+        light.name = "streetSpotLight";
+        light.penumbra = 0.3;
+        light.position.set(0, 5, 0.1);
+        light.visible = false;
+
+        object.add(light);
+        object.add(light.target); // 해당 구문이 없으면, 0,0,0 절대 위치로 고정, 부모 위치의 0,0,0을 바라보도록
+
+        objectsDepthLv0.add(object);
+
+       objPosX += STREETLIGHT_SPACE; 
+    }
+    streetLightLength = objPosX;
+}
 
 //[ 중거리 obj 생성 - 건물 ]  모델 import 관련해 ai 도움 받았습니다
 async function setObjectDepthLv1() {
@@ -211,8 +274,6 @@ async function setObjectDepthLv1() {
 
     const model = await glfLoader.loadAsync('asset/Building.glb');
 
-    
- 
     const buildingLightMesh = new THREE.PlaneGeometry(MODEL_WIDTH-0.1, MODEL_HIGHT);
 
     for (let i = 0; i < BUILDING_COUNT; i++) {
@@ -262,62 +323,7 @@ async function setObjectDepthLv1() {
     }
 }
 
-// [ 최근접 obj 생성 - 가로등 ] 모델 import 관련해 ai 도움 받았습니다
-async function setObjectDepthLv0(){
-    const STREETLIGHT_COUNT = 5;
-    const STREETLIGHT_SPACE = 4; // m 가로등 간격
-    let objPosX = 0;
-
-    const StreetLightMaterial = new THREE.MeshPhongMaterial ({
-        color: 0x3f3f3f,
-        side: THREE.DoubleSide,
-    });
-    const model = await glfLoader.loadAsync('asset/StreetLight.glb');
-
-    // 여기서 scene은 가로등 모델 자체를 의미, 가로등 기본 설정
-    model.scene.traverse((child) => {
-            if (child.isMesh) {
-                child.material = StreetLightMaterial;
-                child.castShadow = true;
-                if(child.name !== "frame"){
-                    child.name = "streetLightBulb"; 
-                    // 모델 내부의 전등 역할을 하는 모델은 Ligjt1, 2로 명명 되어 있어, 내부애서 통일
-                    // 이후 클릭 이벤트 발생 시, 탐색을 위한 명명
-                }
-            }
-        });
-
-    // 가로등 생성
-    for (let i = 0; i < STREETLIGHT_COUNT; i++){
-        const object = model.scene.clone();
-        object.position.x = objPosX;
-        objPosX += STREETLIGHT_SPACE;
-        object.rotation.y = Math.PI/6 ;
-        
-        object.traverse((child) => {
-            if (child.isMesh && child.name === "streetLightBulb") {
-                child.material = child.material.clone(); 
-                child.material.color = new THREE.Color(0xffffff);
-                child.material.emissive = COLOR.streetBulbDayColor.clone();
-            }
-            streeLights.push(child); // 해당 배열을 기준으로 raycasting 검사
-        });
-
-        const light = new THREE.SpotLight(COLOR.streetBulbNightColor, 15, 15, Math.PI/6);
-        light.penumbra = 0.3;
-        light.target.position.set(0,0,0);
-        light.name = "streetSpotLight";
-        light.position.set(0, 5, 0.1);
-        light.visible = false;
-        object.add(light);
-        object.add(light.target); // 해당 구문이 없으면, 0,0,0 절대 위치로 고정, 부모 위치의 0,0,0을 바라보도록
-
-        objectsDepthLv0.add(object);
-
-        streetLightLenght = objPosX;
-    }
-}
-
+// [ 원거리 obj 생성 - 산 ]
 function setObjectDepthLv2(){
     const mountainCount = 8;
     let objPosX = 0 ;
@@ -351,8 +357,6 @@ function setObjectDepthLv2(){
 
 // [애니메이션_루프]
 function animation(){
-    requestAnimationFrame(animation);
-
     deltaT = clock.getDelta() // 매 프레임 delta t
 
     updateBuildingLight();
@@ -363,74 +367,6 @@ function animation(){
     moveObject();
     
     renderer.render(scene, camera);
-}
-
-// [이벤트 처리 _ 키보드 ]
-function onKeyDown(e){
-   
-    switch(e.key){ 
-    case '1': 
-        setTime('day'); break;
-
-    case '2': 
-        setTime('sunset'); break;
-
-    case '3':
-        setTime('night'); break;
-
-    case '4' :
-        toggleFog(); break; 
-
-    case '5':
-        isSnowing = !isSnowing;
-        break;
-
-    case 'q': //주변환경 움직임
-        isWalking = !isWalking; 
-        break;
-
-    case 'ArrowUp':
-        moveSpeed += 0.5;
-        if (moveSpeed > MAX_SPEED) moveSpeed = MAX_SPEED;
-        break;
-    
-    case 'ArrowDown':
-        moveSpeed -= 0.5;
-        if (moveSpeed < MiN_SPEED) moveSpeed = MiN_SPEED;
-        break;
-
-    default:
-        break;
-        
-    }
-    updateText();
-}
-
-// [이벤트 처리 _ 안개 효과 토글]
-function toggleFog() {
-    if( isFoggy ){
-            scene.fog = null
-            isFoggy = false
-        }
-        else{
-            scene.fog = new THREE.Fog( 0xcccccc, 0.1, 100)
-            isFoggy = true
-        }
-}
-
-// [ 키보드 이벤트 _ 강제 시간 변화]
-function setTime( setWhen ){
-    if(setWhen === 'day'){
-        worldTime = DAYDURATiON * 0.25; // intensity == 1
-    }
-    
-    if(setWhen === 'sunset'){
-        worldTime = DAYDURATiON * 0.5; // intensity == 0.5
-    }
-
-    if(setWhen === 'night'){
-         worldTime = DAYDURATiON * 0.625; // intensity == 0.25
-    }
 }
 
 // [이벤트 처리 _ 마우스 움직임]
@@ -491,25 +427,102 @@ function cameraRotate(){
     
 }  
 
-// [건물 _ 업데이트 ]
-function updateBuildingLight(){
-    if(!shouldUpdateBuildingLight) return;
+// [ 마우스 이벤트 _ 클릭 ]
+function turnOnOffStreetLight(){
+    let intersects = raycast.intersectObjects( streetLights, false );  // 타겟 - 가로등 내부에 메쉬만으로 한정
+    // 배열 내부만 검사하므로 recursive false
 
-    updatingBuildingTime += deltaT;
+    if (intersects.length > 0) {
+        const selectedMesh = intersects[0].object; // 처음으로 만나는 메쉬
+        const obj = selectedMesh.parent; // 그 상위 객체, 가로등(scene)
+       
+        // console.log("Selected mesh name:", selectedMesh.name);
+        // console.log("Containing object:", obj.name, obj);
+        // obj 이름이 scene로 표시되나, 가로등 개별 메쉬를 묶는 객체 이름이 scene이므로
+        // scene라는 이름과는 달리 가로등 객체 그 자체를 의미
     
+        obj.traverse((child) => {
+            if (child.name === "streetLightBulb") {
+                const isLightOff = child.material.emissive.getHex() === COLOR.streetBulbNightColor.getHex();
+                child.material.emissive = isLightOff ? COLOR.streetBulbDayColor.clone() : COLOR.streetBulbNightColor.clone();
+            }   
+            
+            if (child.name === "streetSpotLight") {
+                child.visible = !child.visible
+                }
+            });
+        }
+}        
 
-    buildingLights.forEach(light => {
-        if ( updatingBuildingTime > light.userData.delay && light.visible !== isNight ) {
-                    light.visible = isNight;
-        }   
-    });
+// [이벤트 처리 _ 키보드 ]
+function onKeyDown(e){
+   
+    switch(e.key){ 
+    case '1': 
+        setTime('day'); break;
 
-    if(updatingBuildingTime > 1.1 ){
-        shouldUpdateBuildingLight = false
+    case '2': 
+        setTime('sunset'); break;
+
+    case '3':
+        setTime('night'); break;
+
+    case '4' :
+        toggleFog(); break; 
+
+    case '5':
+        isSnowing = !isSnowing;
+        break;
+
+    case 'q': //주변환경 움직임
+        isWalking = !isWalking; 
+        break;
+
+    case 'ArrowUp':
+        moveSpeed += 0.5;
+        if (moveSpeed > MAX_SPEED) moveSpeed = MAX_SPEED;
+        break;
+    
+    case 'ArrowDown':
+        moveSpeed -= 0.5;
+        if (moveSpeed < MiN_SPEED) moveSpeed = MiN_SPEED;
+        break;
+
+    default:
+        break;
+        
     }
-
+    updateText();
 }
 
+// [ 키보드 이벤트 _ 안개 효과 토글]
+function toggleFog() {
+    if( isFoggy ){
+            scene.fog = null
+            isFoggy = false
+        }
+        else{
+            scene.fog = new THREE.Fog( 0xcccccc, 0.1, 100)
+            isFoggy = true
+        }
+}
+
+// [ 키보드 이벤트 _ 강제 시간 변화]
+function setTime( setWhen ){
+    if(setWhen === 'day'){
+        worldTime = DAYDURATiON * 0.25; // intensity == 1
+    }
+    
+    if(setWhen === 'sunset'){
+        worldTime = DAYDURATiON * 0.5; // intensity == 0.5
+    }
+
+    if(setWhen === 'night'){
+         worldTime = DAYDURATiON * 0.625; // intensity == 0.25
+    }
+}
+
+// [환경 _ 낮 밤 전환점]
 function toggleDayNight(){
 
     // console.log("isnight : "+ isNight );
@@ -546,16 +559,34 @@ function toggleDayNight(){
         })
     });
 
-    streeLights.forEach( child => {
-
-    } )
 }
 
+// [환경 _건물 업데이트 ]
+function updateBuildingLight(){
+    if(!shouldUpdateBuildingLight) return;
+
+    updatingBuildingTime += deltaT;
+    
+
+    buildingLights.forEach(light => {
+        if ( updatingBuildingTime > light.userData.delay && light.visible !== isNight ) {
+                    light.visible = isNight;
+        }   
+    });
+
+    if(updatingBuildingTime > 1.1 ){
+        shouldUpdateBuildingLight = false
+    }
+
+}
+
+// [ 환경 _ 안개 ]
 function updatefog(){
     if(!isFoggy){ return; }
     scene.fog.color.lerpColors(COLOR.nightFogColor, COLOR.dayFogColor, sunLightIntensity);
 }
 
+// [ 환경 _ 눈 효과 ]
 function updateSnow(){
     if(!isSnowing){ snowPoints.visible = false; return}
     if (!snowPoints){ return };
@@ -582,34 +613,7 @@ function updateSnow(){
 
 }
 
-// [ 마우스 이벤트 _ 클릭 ]
-function turnOnOffStreetLight(){
-    let intersects = raycast.intersectObjects( streeLights, false );  
-    // 배열 내부만 검사하므로 recursive false
-
-    if (intersects.length > 0) {
-        const selectedMesh = intersects[0].object; // 처음으로 만나는 메쉬
-        const obj = selectedMesh.parent; // 그 상위 객체, 가로등(scene)
-       
-        // console.log("Selected mesh name:", selectedMesh.name);
-        // console.log("Containing object:", obj.name, obj);
-        // obj 이름이 scene로 표시되나, 가로등 개별 메쉬를 묶는 객체 이름이 scene이므로
-        // scene라는 이름과는 달리 가로등 객체 그 자체를 의미
-    
-        obj.traverse((child) => {
-            if (child.name === "streetLightBulb") {
-                const isLightOff = child.material.emissive.getHex() === COLOR.streetBulbNightColor.getHex();
-                child.material.emissive = isLightOff ? COLOR.streetBulbDayColor.clone() : COLOR.streetBulbNightColor.clone();
-            }   
-            
-            if (child.name === "streetSpotLight") {
-                child.visible = !child.visible
-                }
-            });
-        }
-}        
-
-// [ 애니메이션 _ 낮 밤 시간 변화]
+// [ 환경 _ 낮 밤 시간 변화]
 function dayCycle(){
     /* 
     *  worldTime따라 Intensity 변경 + 컬러 lerp
@@ -622,7 +626,6 @@ function dayCycle(){
 
     const angle = (worldTime / DAYDURATiON) * 2.0 * Math.PI; 
 
-    if( sunLight.position )
     // sunLight.position.x = Math.cos(angle) * SUN_RADIUS; 
     // sunLight.position.y = Math.sin(angle) * SUN_RADIUS; 
 
@@ -645,6 +648,7 @@ function dayCycle(){
     sunLight.color.lerpColors(COLOR.nightColor,COLOR.dayColor, sunLightIntensity);
 }
 
+//[ 환경 _ 이동 효과 ]
 function moveObject(){
     if(!isWalking){ return; } 
     const moveDist = moveSpeed * deltaT;
@@ -654,8 +658,8 @@ function moveObject(){
     objectsDepthLv0.children.forEach(child => {
         child.position.x += moveDist;
 
-        if (child.position.x > (streetLightLenght + 6) + objectsDepthLv0.position.x) {
-            child.position.x -= streetLightLenght;
+        if (child.position.x > (streetLightLength + 6) + objectsDepthLv0.position.x) {
+            child.position.x -= streetLightLength;
         }
     });
 
@@ -709,14 +713,15 @@ function setGuideText(){
 function updateText(){
     
     const guide = "키보드 버튼을 눌러 도시의 풍경을 바꿔보세요! 마우스로 가로등을 클릭해 보세요! \n\n"
-    const keyGuide = "    [1] : 오전 " +
+    const keyGuideTime = "    [1] : 오전 " +
                         "    [2] : 오후 " + 
-                        "    [3] : 저녁 " + "\n\n" +
-                        "    [4] : 안개 " + ( isFoggy ? '[V]' : '[\u00a0]')+
+                        "    [3] : 저녁 " + "\n\n" ;
+                        
+    const keyGuideWeather = "    [4] : 안개 " + ( isFoggy ? '[V]' : '[\u00a0]')+
                         "    [5] : 눈 " + ( isSnowing ? '[V]' : '[\u00a0]') ;
 
-    textElement.innerText = guide + keyGuide 
-                            +"    [Q] : 이동 " + ( isWalking ? '[V]' : '[\u00a0]' ) +"    [↑][↓] : 이동 속도 조절" ;
+    const keyGuideMoving = "    [Q] : 이동 " + ( isWalking ? '[V]' : '[\u00a0]' ) +"    [↑][↓] : 이동 속도 조절";
+    textElement.innerText = guide + keyGuideTime + keyGuideWeather + keyGuideMoving;
 }
 
 init();    
