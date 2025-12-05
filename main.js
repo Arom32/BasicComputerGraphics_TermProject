@@ -39,7 +39,7 @@ let buildingsLenght ; // 모든 빌딩이 배치된 총 길이
 let streetLightLength ; // 가로등 배치 총 길이
 let mountainLenght ;
 let  moveSpeed = 1.5;
-const MAX_SPEED  = 2.0 ;
+const MAX_SPEED  = 3 ;
 const MiN_SPEED = 1.0 ;
 
 // 색상 상수
@@ -211,10 +211,10 @@ async function setObjectDepthLv0(){
     // 여기서 scene은 가로등 모델 자체를 의미, 가로등 기본 설정
     model.scene.traverse((child) => {
             if (child.isMesh) {
-                child.material = frameMaterial;
                 child.castShadow = true;
                 if(child.name !== "frame"){
                     child.name = "streetLightBulb"; 
+                    child.material = bulbMaterial;
                     // 모델 내부의 전등 역할을 하는 모델은 Ligjt1, 2로 명명 되어 있어, 내부에서 통일
                     // 이후 클릭 이벤트 발생 시, 탐색을 위한 명명
                 }
