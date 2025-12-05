@@ -1,8 +1,5 @@
 import * as THREE from 'three';
-import {GLTFLoader } from 'three/examples/jsm/Addons.js';
-import { Color, Fog } from 'three/webgpu';
-
-
+import { GLTFLoader } from 'three/examples/jsm/Addons.js';
 
 // 기본 설정
 let camera, scene, renderer, sunLight, ambientLight, raycast;
@@ -21,18 +18,31 @@ const glfLoader = new GLTFLoader();
 
 //이벤트 관련 함수
 let mouse = new THREE.Vector2(); 
+let isFoggy = false;
+let isSnowing = false;
+let isWalking = false;
 
 // 카메라 회전 관련 상수
 const DAMPING_SPEED = 0.05; // 원위치로 회귀 speed
 const INVALID_MOVING_AREA = 0.9; // 마우스 움직임 반영하지 않는 내부 비율. 
-const ROTATE_SPEED = 0.01; // 카메라 회전 speed
+const ROTATE_SPEED = 0.005; // 카메라 회전 speed
 const MAX_ROTATE_ANGLE = THREE.MathUtils.degToRad(10);
 const NEAR_ZERO = 0.001; // 카메라 회전 복귀시, 0 근접 판정 값
 
 // light 관련 변수
-const buildingLights = []; // treverse 최소화
+const buildingLights = []; // treverse 최소화를 위한 배열
 const streeLights = [];
+let sunLightIntensity = 0.1;
 
+//movnig 관련 변수
+let buildingsLenght ; // 모든 빌딩이 배치된 총 길이
+let streetLightLenght ; // 가로등 배치 총 길이
+let mountainLenght ;
+let  moveSpeed = 1.5;
+const MAX_SPEED  = 2.0 ;
+const MiN_SPEED = 1.0 ;
+
+// 색상 상수
 const COLOR = {
     dayColor : new THREE.Color(60, 40, 40),
     nightColor : new THREE.Color(0,10,20),
@@ -43,29 +53,23 @@ const COLOR = {
     dayFogColor : new THREE.Color(0xcccccc),
     nightFogColor :  new THREE.Color(0x3d404a),
     daySkyColor : new THREE.Color(0xA6DAF4), 
-    nightSkyColor : new THREE.Color(0x050510)
+    nightSkyColor : new THREE.Color(0x23262e)
 }
 
-// const dayColor = new Color(	60, 40, 40);
-// const nightColor = new Color(0,10,20);
-const SUN_RADIUS = 100;
-let sunLightIntensity = 0.1;
-let sunLightColor = COLOR.dayColor.clone();
-
-// const streetBulbDayColor =  new THREE.Color(0x000000);
-// const streetBulbNightColor =  new THREE.Color(0xffffaa);
-
-let isFoggy;
-
 // time 관련 변수
-
-const DAYDURATiON = 10; // 하루 주기 sec
+const DAYDURATiON = 60; // 하루 주기 sec
 let shouldUpdateBuildingLight = false;
 let updatingBuildingTime = 0;
 let isNight = false;
 let deltaT;
 let worldTime = 0; // 런타임에 종속적 문제 해결을 위한 변수
 
+// 눈 관련 변수
+let snow, snowPoints;
+const RAIN_COUNT = 2000;
+
+// ui
+const textElement = document.createElement('div');
 
 // [기본 설정]
 function init() {
@@ -74,8 +78,8 @@ function init() {
     scene = new THREE.Scene();
     scene.background = COLOR.daySkyColor.clone();
 
-    camera = new THREE.PerspectiveCamera( 70, h_scr/v_scr, 0.1, 1000 );
-    camera.position.set(0, -0.2, 1.5); 
+    camera = new THREE.PerspectiveCamera( 80, h_scr/v_scr, 0.1, 1000 );
+    camera.position.set(0, 0, 0.2); 
     camera.lookAt(0,0,0); 
 
     renderer = new THREE.WebGLRenderer();
@@ -88,7 +92,7 @@ function init() {
     ambientLight = new THREE.AmbientLight(0xffffff, 0.5); 
     scene.add(ambientLight);
 
-    sunLight = new THREE.DirectionalLight(COLOR.sunLightColor, COLOR.sunLightIntensity); // 나중에 수정 
+    sunLight = new THREE.DirectionalLight(COLOR.sunLightColor, sunLightIntensity); 
     sunLight.position.set(50,50,30);
     sunLight.castShadow = true;
     sunLight.target.position.set(0,0,0);
@@ -101,25 +105,30 @@ function init() {
     addEventListener("mousemove", onMouseMove);
     addEventListener("mousedown", onMouseDown);
     addEventListener("keydown", onKeyDown);
+
+    setGuideText();
 }
 
 // [오브젝트 생성, 관리]
 function setObject(){
 
+    setBasicObject();   
     setObjectDepthLv1();      
-    setBasicObject();
     setObjectDepthLv0();
+    setObjectDepthLv2();
     scene.add(basicObject);
     
-    objectsDepthLv0.position.set(-8, -2, -3);
     scene.add(objectsDepthLv0);
+    objectsDepthLv0.position.set(-8, -2, -3);
     scene.add(objectsDepthLv1);
+    objectsDepthLv1.position.set(-50, -2, -20); 
     scene.add(objectsDepthLv2);
+    objectsDepthLv2.position.set(-180, -2, -80)
 }
 
 //[오브젝트 _ 기본 오브젝트 그룹]
 function setBasicObject(){
-   
+    // 바닥 1
     let floor = new THREE.Mesh( new THREE.PlaneGeometry( 200 , 100 ),
                     new THREE.MeshLambertMaterial( {color: 0xf0f0f0} ) );
     floor.position.set(0,-2,0);
@@ -133,6 +142,7 @@ function setBasicObject(){
     floor.receiveShadow = true;
     basicObject.add( floor );
 
+    //바닥 2 보도
     floor = new THREE.Mesh( new THREE.PlaneGeometry( 200 , 10 ),
                     new THREE.MeshLambertMaterial( {color: 0xc0c0c0} ) );
     floor.position.set(0,-1.99,0);
@@ -146,9 +156,39 @@ function setBasicObject(){
     floor.receiveShadow = true;
     basicObject.add( floor );
 
-    // const sky = new THREE.Mesh( new THREE.PlaneGeometry(1000,1000),new THREE.MeshLambertMaterial( {color: 0xA6DAF4}));
-    // sky.position.set(0,0, -100);
-    // basicObject.add(sky);
+    createSnow();
+}
+
+//[눈 효과 초기 설정] ai 도움 받았습니다
+function createSnow(){
+    const positions = [];
+    const velocities = []; 
+
+    for (let i = 0; i < RAIN_COUNT; i++) {
+        positions.push(
+            THREE.MathUtils.randFloat(-60, 60), 
+            THREE.MathUtils.randFloat(0, 60),   
+            THREE.MathUtils.randFloat(-40, 0)  
+        );
+        
+        velocities.push(THREE.MathUtils.randFloat(0.01, 0.2));
+    }
+
+    snow = new THREE.BufferGeometry();
+    snow.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    
+    snow.userData = { velocities: velocities };
+
+    const rainMaterial = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.2,    
+        transparent: true,
+        opacity: 0.8,
+    });
+
+    snowPoints = new THREE.Points(snow, rainMaterial);
+    snowPoints.visible = false; 
+    scene.add(snowPoints);
 }
 
 
@@ -158,38 +198,38 @@ async function setObjectDepthLv1() {
      * 건물의 기준은 왼쪽 아래 vertex 중간에 위치
      * 건물 오브젝트의 SACLE 범위 : 4배 ~ 7배
      */
+    const BUILDING_COUNT = 18;
     const BUILDING_SPACE = 0.5; // m 건물 간격
 
-    const MAX_OBJ_SCALE = 7; 
-    const MIN_OBJ_SCALE = 4;
+    const MAX_OBJ_SCALE = 4; 
+    const MIN_OBJ_SCALE = 1.5;
 
     const MODEL_WIDTH = 2; //모델의 실제 크기
     const MODEL_HIGHT = 4;
 
-    let objPos = new THREE.Vector3(-80, -2, -55); 
-    // [수정 예정] 빠른 변경을 위해 objPos 배치 확인 용으로 선언해놓았으나
-    // setObject에서 ObjectDepthLv1 그룹의 위치를 지정할 예정
-   
-
-    const buildingMaterial = new THREE.MeshLambertMaterial ({
-        color: 0x808080,
-        side: THREE.DoubleSide
-    });
+    let objPos = new THREE.Vector3(0, 0, 0); 
 
     const model = await glfLoader.loadAsync('asset/Building.glb');
 
-    model.scene.traverse((child) => {
+    
+ 
+    const buildingLightMesh = new THREE.PlaneGeometry(MODEL_WIDTH-0.1, MODEL_HIGHT);
+
+    for (let i = 0; i < BUILDING_COUNT; i++) {
+
+        const object = model.scene.clone(); //scene은 buliding 을 감싸는 파일
+        
+        const greyScale = THREE.MathUtils.randFloat(0.2, 0.8);
+        const buildingMaterial = new THREE.MeshLambertMaterial ({
+            color: new THREE.Color(greyScale, greyScale, greyScale),
+        });
+
+        object.traverse((child) => {
             if (child.isMesh) {
                 child.material = buildingMaterial;
                 child.castShadow = true;
             }});
- 
-    const buildingLightMesh = new THREE.PlaneGeometry(MODEL_WIDTH-0.1, MODEL_HIGHT);
 
-    for (let i = 0; i < 15; i++) {
-
-        const object = model.scene.clone();
-        
         const modelScale = THREE.MathUtils.randFloat(MIN_OBJ_SCALE, MAX_OBJ_SCALE);
         object.scale.set(modelScale, modelScale, modelScale);
         object.position.set(objPos.x, objPos.y, objPos.z);
@@ -217,11 +257,14 @@ async function setObjectDepthLv1() {
         // building 이 스케일 되면서 포지션도 자동으로 스케일 되므로, scale되기 이전의 위치를 기준으로 배치
 
         objectsDepthLv1.add(object);
+
+        buildingsLenght = objPos.x;
     }
 }
 
 // [ 최근접 obj 생성 - 가로등 ] 모델 import 관련해 ai 도움 받았습니다
 async function setObjectDepthLv0(){
+    const STREETLIGHT_COUNT = 5;
     const STREETLIGHT_SPACE = 4; // m 가로등 간격
     let objPosX = 0;
 
@@ -245,7 +288,7 @@ async function setObjectDepthLv0(){
         });
 
     // 가로등 생성
-    for (let i = 0; i < 4; i++){
+    for (let i = 0; i < STREETLIGHT_COUNT; i++){
         const object = model.scene.clone();
         object.position.x = objPosX;
         objPosX += STREETLIGHT_SPACE;
@@ -267,10 +310,43 @@ async function setObjectDepthLv0(){
         light.position.set(0, 5, 0.1);
         light.visible = false;
         object.add(light);
-        object.add(light.target); // 해당 구문이 없으면, 0,0,0 절대 위치로 고정
+        object.add(light.target); // 해당 구문이 없으면, 0,0,0 절대 위치로 고정, 부모 위치의 0,0,0을 바라보도록
 
         objectsDepthLv0.add(object);
+
+        streetLightLenght = objPosX;
     }
+}
+
+function setObjectDepthLv2(){
+    const mountainCount = 8;
+    let objPosX = 0 ;
+
+    const mountainMaterial = new THREE.MeshLambertMaterial({
+        color: 0x2c5422, 
+        flatShading: true, 
+    });
+
+    for (let i = 0; i < mountainCount; i++) {
+        const radius = THREE.MathUtils.randFloat(50, 80);
+        const height = THREE.MathUtils.randFloat(50, 90);
+        const geometry = new THREE.ConeGeometry(radius, height, 4); 
+
+        const mountain = new THREE.Mesh(geometry, mountainMaterial);
+
+        mountain.position.set(
+            objPosX, 
+            height / 2 - 10, 
+            THREE.MathUtils.randFloat(-10, 0)
+        );
+
+        mountain.rotation.y = THREE.MathUtils.randFloat(0, Math.PI/4);
+        objPosX += THREE.MathUtils.randFloat(40 , 60);
+
+        objectsDepthLv2.add(mountain);
+    }
+    
+    mountainLenght = objPosX;
 }
 
 // [애니메이션_루프]
@@ -278,12 +354,14 @@ function animation(){
     requestAnimationFrame(animation);
 
     deltaT = clock.getDelta() // 매 프레임 delta t
+
     updateBuildingLight();
     cameraRotate();
     dayCycle();
     updatefog();
+    updateSnow();
+    moveObject();
     
-    // debug();
     renderer.render(scene, camera);
 }
 
@@ -293,19 +371,51 @@ function onKeyDown(e){
     switch(e.key){ 
     case '1': 
         setTime('day'); break;
+
     case '2': 
         setTime('sunset'); break;
+
     case '3':
         setTime('night'); break;
+
     case '4' :
-        setEnv(); break;
-    case 'q':
-        //moveEnv(); break;
+        toggleFog(); break; 
+
+    case '5':
+        isSnowing = !isSnowing;
+        break;
+
+    case 'q': //주변환경 움직임
+        isWalking = !isWalking; 
+        break;
+
+    case 'ArrowUp':
+        moveSpeed += 0.5;
+        if (moveSpeed > MAX_SPEED) moveSpeed = MAX_SPEED;
+        break;
+    
+    case 'ArrowDown':
+        moveSpeed -= 0.5;
+        if (moveSpeed < MiN_SPEED) moveSpeed = MiN_SPEED;
+        break;
+
     default:
         break;
         
     }
-    
+    updateText();
+}
+
+// [이벤트 처리 _ 안개 효과 토글]
+function toggleFog() {
+    if( isFoggy ){
+            scene.fog = null
+            isFoggy = false
+        }
+        else{
+            scene.fog = new THREE.Fog( 0xcccccc, 0.1, 100)
+            isFoggy = true
+        }
 }
 
 // [ 키보드 이벤트 _ 강제 시간 변화]
@@ -321,23 +431,6 @@ function setTime( setWhen ){
     if(setWhen === 'night'){
          worldTime = DAYDURATiON * 0.625; // intensity == 0.25
     }
-}
-
-// [키보드 이벤트 _ 주변환경 움직임]
-function setEnv(){
-    /* 1. 같은 속도로 움직여도 레벨별로 그 차이가 나나?
-    *  2. 회전 구현 how?
-    */
-
-    if( isFoggy ){
-        scene.fog = null
-        isFoggy = false
-    }
-    else{
-        scene.fog = new Fog( 0xcccccc, 0.1, 120)
-        isFoggy = true
-    }
-
 }
 
 // [이벤트 처리 _ 마우스 움직임]
@@ -398,6 +491,7 @@ function cameraRotate(){
     
 }  
 
+// [건물 _ 업데이트 ]
 function updateBuildingLight(){
     if(!shouldUpdateBuildingLight) return;
 
@@ -417,7 +511,8 @@ function updateBuildingLight(){
 }
 
 function toggleDayNight(){
-    console.log("isnight : "+ isNight );
+
+    // console.log("isnight : "+ isNight );
     
     updatingBuildingTime = 0;
     shouldUpdateBuildingLight = true;
@@ -436,7 +531,9 @@ function toggleDayNight(){
     //             }
     //         });
     //     }, randomDelay); 
-    // });
+    // }); 
+    // // setTimeout 사용 대신 animation에서 다룰 수 있도록 
+    // updateBuildingLight 로 따로 뺌, 여기서는 플래그만 설정
 
     objectsDepthLv0.children.forEach(streetLight => {
         streetLight.traverse(child => {
@@ -455,8 +552,34 @@ function toggleDayNight(){
 }
 
 function updatefog(){
-    if(!isFoggy){return;}
+    if(!isFoggy){ return; }
     scene.fog.color.lerpColors(COLOR.nightFogColor, COLOR.dayFogColor, sunLightIntensity);
+}
+
+function updateSnow(){
+    if(!isSnowing){ snowPoints.visible = false; return}
+    if (!snowPoints){ return };
+
+    snowPoints.visible = isSnowing;
+    
+    const positions = snow.attributes.position.array;
+    const velocities = snow.userData.velocities;
+
+    for (let i = 0; i < RAIN_COUNT; i++) {
+    
+        const indexY = i * 3 + 1; //x,y,z
+        
+        positions[indexY] -= velocities[i]; 
+
+        if (positions[indexY] < -1) {
+            positions[indexY] = 60; //다시 위로 올리기
+            
+            positions[i * 3] = THREE.MathUtils.randFloat(-60, 60); //x
+            positions[i * 3 + 2] = THREE.MathUtils.randFloat(-40, 20); //y
+        }
+    }
+    snow.attributes.position.needsUpdate = true;
+
 }
 
 // [ 마우스 이벤트 _ 클릭 ]
@@ -499,8 +622,10 @@ function dayCycle(){
 
     const angle = (worldTime / DAYDURATiON) * 2.0 * Math.PI; 
 
+    if( sunLight.position )
     // sunLight.position.x = Math.cos(angle) * SUN_RADIUS; 
     // sunLight.position.y = Math.sin(angle) * SUN_RADIUS; 
+
     sunLight.position.z = 20;
 
     sunLightIntensity = 0.5 + Math.sin( angle )/2.0;
@@ -520,14 +645,78 @@ function dayCycle(){
     sunLight.color.lerpColors(COLOR.nightColor,COLOR.dayColor, sunLightIntensity);
 }
 
-function debug(){
+function moveObject(){
+    if(!isWalking){ return; } 
+    const moveDist = moveSpeed * deltaT;
 
-    // console.log("light intensity : " + sunLight.intensity);
-    // console.log("theta :" + theta+ ", light position x :" + sunLight.position.x+", y :" + sunLight.position.y+"\n");
-    // console.log("camera rotation x :" + camera.rotation.x + ", y :" + camera.rotation.y);
-    // console.log(worldTime, sunLightIntensity)
-    // console.log(ambientLight.color + " \\ " + sunLight.color)
-    // console.log(worldTime)
+    // 가로등
+    // 물제 이동 오른쪽 / 왼쪽으로 걷는 효과
+    objectsDepthLv0.children.forEach(child => {
+        child.position.x += moveDist;
+
+        if (child.position.x > (streetLightLenght + 6) + objectsDepthLv0.position.x) {
+            child.position.x -= streetLightLenght;
+        }
+    });
+
+    // 건물 이동
+    objectsDepthLv1.children.forEach(child => {
+        child.position.x += moveDist;
+
+        if (child.position.x > buildingsLenght + 50 + objectsDepthLv1.position.x) {
+            child.position.x -= buildingsLenght; // 맨 앞으로 이동
+        }
+    });
+
+    objectsDepthLv2.children.forEach(child =>{
+        child.position.x += moveDist;
+
+        if (child.position.x > mountainLenght + 200 + objectsDepthLv2.position.x){
+            child.position.x -= mountainLenght;
+        }
+    })
+
+    // 바닥
+    basicObject.children.forEach(mesh => {
+        if (mesh.material.map) {
+            mesh.material.map.offset.x -= 0.31 * moveDist ;
+        }
+    });
+}
+
+// [ 가이드 텍스트 _ 초기 설정 ]
+function setGuideText(){
+    textElement.style.position = 'absolute'; 
+    textElement.style.top = '30px';  
+    textElement.style.width = '100%';    
+    textElement.style.textAlign = 'center'; 
+    textElement.style.left = '0';       
+
+    textElement.style.color = '#ffffff'; 
+    textElement.style.fontFamily = 'Consolas, monospace'; 
+    textElement.style.fontSize = '14px'; 
+    textElement.style.fontWeight = 'bold';
+    textElement.style.textShadow = '1px 1px 2px #000000'; 
+    textElement.style.whiteSpace = 'pre'; 
+    textElement.style.pointerEvents = 'none'; 
+
+    document.body.appendChild(textElement);
+    document.body.appendChild(textElement);
+    updateText(); 
+}
+
+// [ 가이드 텍스트 ]
+function updateText(){
+    
+    const guide = "키보드 버튼을 눌러 도시의 풍경을 바꿔보세요! 마우스로 가로등을 클릭해 보세요! \n\n"
+    const keyGuide = "    [1] : 오전 " +
+                        "    [2] : 오후 " + 
+                        "    [3] : 저녁 " + "\n\n" +
+                        "    [4] : 안개 " + ( isFoggy ? '[V]' : '[\u00a0]')+
+                        "    [5] : 눈 " + ( isSnowing ? '[V]' : '[\u00a0]') ;
+
+    textElement.innerText = guide + keyGuide 
+                            +"    [Q] : 이동 " + ( isWalking ? '[V]' : '[\u00a0]' ) +"    [↑][↓] : 이동 속도 조절" ;
 }
 
 init();    
